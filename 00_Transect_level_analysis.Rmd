@@ -1,0 +1,83 @@
+---
+title: "Transect-level analysis"
+output: html_notebook
+author: Charlotte Page
+---
+
+# Transect-level statistical analysis
+
+## A. Spatial analysis (clustering)
+
+## B. Modelling
+
+### Response variables 
+
+1) Disease prevalence (% of surveyed community showing active disease signs)
+    a) Build model (hypothesis testing)
+
+2) Disease severity (the best variable for this response needs to be assessed)
+    a) Step one: Investigate relationships between disease severity and lesion number NEED TO ADD THIS INTO THE DATA SET
+    b) Step two: Build model (hypothesis testing)
+
+### Predictor variables 
+
++ TP (Dec,April)
++ Site (EB,SB)
++ Total hard coral cover 
++ Total Montipora cover
+
+Libraries and data
+```{r}
+
+# Libraries 
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(multcomp)
+library(lme4)
+library(effects)
+library(lmerTest)
+library(afex)
+library(car)
+library(magrittr)
+library(ggeffects)
+library(sjmisc)
+library(splines)
+#library(glmmTMB)#
+library(DHARMa)
+library(devtools)
+devtools::dr_devtools()
+
+withr::with_makevars(c(PKG_CPPFLAGS="-DCPPAD_MAX_NUM_THREADS=128"), {
+  remotes::install_github("glmmTMB/glmmTMB/glmmTMB")
+}, assignment="+="
+)
+
+install.packages("glmmTMB")
+
+install.packages("glmmTMB", type="source")
+
+install.packages("~/Downloads/glmmTMB-master.zip", repos=NULL, type="source")
+download.packages('glmmTMB-master.zip',destdir='~/Downloads/')
+
+#or any other url from the list or link
+
+# Transect-level analysis rda file
+load(transect_level_analysis.rda)
+
+# Make a new variable called transect ID for random effects structure in model
+
+```
+
+1) Disease prevalence (% of surveyed community showing active disease signs)
+
+GLMM with Binomial family
+
+Use a weights argument to set the number of trials (i.e. number of surveyed corals per transect), and use the proportion as the response directly.  
+
+```{r}
+str(transect_level)
+glmer(proportion ~ Site + TP + Total_hardcoral + Montipora + (1|Transect_D), weights = total_corals_surveyed , family = binomial(), data=transect_level)
+
+```
+

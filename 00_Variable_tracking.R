@@ -65,7 +65,6 @@ colony_level <- merge(colony.analysis,benthic, sort = FALSE)
 save(colony_level, file = "colony_level_analysis.rda")
 write.csv(colony_level,file = "colony_level_analysis.csv")
 
-
 # TRANSECT LEVEL TRANSECT
 # -----------------------------------
 # Response variables (transect level)
@@ -83,12 +82,51 @@ write.csv(colony_level,file = "colony_level_analysis.csv")
 # 3) Total hard coral cover 
 # 4) Total Montipora cover 
 
+
+# A) Disease occurance (Prevalence per transect)
+# B) Disease severity (Mean area covered by lesions on colony per transect)
+
+# ---------------------------------------------
+# Benthic community (transect level)
+# ---------------------------------------------
+
+# 1) Site (Emily Bay, Slaughter Bay)
+# 2) Time point (December, April)
+# 3) Total hard coral cover 
+# 4) Total Montipora cover 
+
 # Summarise data to transect-level
 
-# Select variables of interest 
+# Calculate prevalence per transect 
 
-# Save as a csv.
-# Save as a rda.
+summ <- colony_level %>% group_by(TP, Site, Transect, Healthy) %>%
+  summarise(n = n(),
+            severity = mean(Area)) %>%
+  mutate(freq = n / sum(n)) %>%
+  mutate(prev = freq *100) %>%
+  filter(Healthy == "Diseased")
+
+# To get total number of corals per transect (for model response variable matrix, i.e. i successes out of n trials)
+
+summ_n <- colony_level %>% group_by(TP, Site, Transect, Healthy) %>%
+  summarise(n = n(),
+            severity = mean(Area)) %>%
+  mutate(freq = n / sum(n)) %>%
+  mutate(prev = freq *100) %>% group_by(TP, Site, Transect) %>% summarise(total_corals_surveyed = sum(n))
+
+# Edit TP column of summ_n so that data frames will match up 
+
+response <- merge(summ, summ_n)
+
+# Merge with other variables 
+
+transect_level <- merge(response, benthic, sort = FALSE)
+
+# Write a final rda and csv file.
+save(transect_level, file = "transect_level_analysis.rda")
+write.csv(transect_level,file = "transect_level_analysis.csv")
+
+
 
 
 
