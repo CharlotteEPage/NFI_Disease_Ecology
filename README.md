@@ -2,11 +2,13 @@
 Code and data release for Norfolk Island (NFI) disease ecology project.
 
 Author: Charlotte Page 
+
+
 Contact: c.page@unsw.edu.au
 
-# -----
+
 ## Data
-# -----
+
 Make tables with file names here. 
 
 ### Other supporting data 
@@ -23,9 +25,9 @@ b) Rainfall at site (~1 year) preceeding outbreak
 
 Variable_tracking_script.R
 
-# -----
+
 ## Code
-# -----
+
 
 ### Other supporting data 
 a) Calculation of DHW 
