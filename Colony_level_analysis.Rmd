@@ -1,0 +1,98 @@
+---
+title: "Colony-level analysis"
+output: html_notebook
+author: Charlotte Page
+---
+
+# Colony-level statistical analysis
+
+This is code for colony-level statistical analysis on disease dynamics. 
+
+Model-selection using lasso 
+
+Lasso reduces the variable selection problem to the selection of a single penalty parameter and then the coefficient estimation follows naturally. The key parameter when fitting the lasso is λ, the penalty parameter. We choose λ based on an iterative testing approach, where BIC (lowest) is used to choose lambda.
+
+
+1) Disease occurance (% of surveyed community showing active disease signs)
+    a) GLMM specification 
+    b) Lasso: cross validation to select lambda
+
+
+2) Disease severity (% of colony impacted by disease)
+    a) 
+    
+```{r}
+library(glmnet)
+```
+    
+```{r}
+# Libraries 
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(multcomp)
+library(lme4)
+library(effects)
+library(lmerTest)
+library(afex)
+library(car)
+library(magrittr)
+library(ggeffects)
+library(sjmisc)
+library(splines)
+#library(glmmTMB)#
+library(DHARMa)
+library(devtools)
+library(pbkrtest)
+library(glmmLasso)
+library(sjPlot)
+library(sjmisc)
+library(sjlabelled)
+
+# Transect-level analysis rda file
+colony_analysis <- read.csv("colony_level_analysis.csv")
+
+str(colony_analysis)
+
+colony_analysis$transect_ID <- as.factor(colony_analysis$transect_ID)
+
+```
+    
+    
+    
+```{r}
+
+#create a list of lambda’s to try. I
+
+Lambda_try <- c(0.1,0.5,1,2,3,4,5,10)
+
+#initialise a vector to store the BIC’s
+BIC_from_Lambda_try_models <- c()
+
+# loop through the Lambda_try to see what the BIC of each resulting model is. 
+
+for (i in 1: length(Lambda_try)){
+  
+#customise formula, random effect, family and dataset
+glm1 <- glmmLasso(Healthy ~ TP + Site + Colour_morph + Growth_form + Size + Colour + Other_mortality + Cyano_mat + Montipora + Sediment + Macroalgae + Other_calcifier , 
+                   rnd = list(transect_ID=~1), family = binomial, data = colony_analysis, lambda=Lambda_try[i])
+
+BIC_from_Lambda_try_models[i] <- glm1$bic
+
+}
+
+#plot the BIC’s versus Lambda_try
+
+plot(Lambda_try, BIC_from_Lambda_try_models)
+
+Glm_final <- glmmLasso( y ~  x1 + x2+ x3+x4+x5+x6 , rnd = list(year_factor=~1), family = poisson(link = log), data = DATA, lambda= Chosen_Lambda)
+
+```
+    
+    
+    
+    
+    
+    
+    
+    
