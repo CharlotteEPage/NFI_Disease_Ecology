@@ -8,23 +8,24 @@ author: Charlotte Page
 
 This is code for colony-level statistical analysis on disease dynamics. 
 
-Model-selection using lasso 
-
-Lasso reduces the variable selection problem to the selection of a single penalty parameter and then the coefficient estimation follows naturally. The key parameter when fitting the lasso is λ, the penalty parameter. We choose λ based on an iterative testing approach, where BIC (lowest) is used to choose lambda.
+**Notes**
 
 
-1) Disease occurance (% of surveyed community showing active disease signs)
+Model-selection using lasso - Lasso reduces the variable selection problem to the selection of a single penalty parameter and then the coefficient estimation follows naturally. The key parameter when fitting the lasso is λ, the penalty parameter. We choose λ based on an iterative testing approach, where BIC (lowest) is used to choose lambda.
+
+
+1) Disease occurance (presence/absence)
     a) GLMM specification 
     b) Lasso: cross validation to select lambda
-
+    c) Model checking
+    d) Results
 
 2) Disease severity (% of colony impacted by disease)
-    a) 
-    
-```{r}
-library(glmnet)
-```
-    
+    a) GLMM specification 
+    b) Lasso: cross validation to select lambda  
+    c) Model checking
+    d) Results
+
 ```{r}
 # Libraries 
 library(ggplot2)
@@ -51,18 +52,35 @@ library(sjlabelled)
 
 # Transect-level analysis rda file
 colony_analysis <- read.csv("colony_level_analysis.csv")
+PCA_results <- read.csv("Benthic_PCA_eigenvectors.csv")
 
 str(colony_analysis)
+str(PCA_results)
 
 colony_analysis$transect_ID <- as.factor(colony_analysis$transect_ID)
 
+# Merge PCA analysis with colony analysis 
+
+
+disease.vars <- merge(colony_analysis,PCA_results, sort = FALSE)
+
+
 ```
     
-    
+# Occurance    
     
 ```{r}
+# Code a dummy variable for healthy/diseased individuals 
 
-#create a list of lambda’s to try. I
+disease.vars$occ <- ifelse(disease.vars$Healthy == "Diseased",1,0)
+
+library(glmmLasso)
+library(dplyr)
+library(tidyr)
+
+# Try using other code. 
+
+#create a list of lambda’s to try. 
 
 Lambda_try <- c(0.1,0.5,1,2,3,4,5,10)
 
@@ -74,8 +92,11 @@ BIC_from_Lambda_try_models <- c()
 for (i in 1: length(Lambda_try)){
   
 #customise formula, random effect, family and dataset
-glm1 <- glmmLasso(Healthy ~ TP + Site + Colour_morph + Growth_form + Size + Colour + Other_mortality + Cyano_mat + Montipora + Sediment + Macroalgae + Other_calcifier , 
-                   rnd = list(transect_ID=~1), family = binomial, data = colony_analysis, lambda=Lambda_try[i])
+glm1 <- glmmLasso(occ ~ Transect + TP + 
+                    Growth_form + Colour_morph + Size + 
+                    Colour + Other_mortality + 
+                    Dim.1 + Dim.2 + Dim.3 + Dim.4,
+                   rnd = list(Transect=~1), family = binomial, data = disease.vars, lambda=Lambda_try[i])
 
 BIC_from_Lambda_try_models[i] <- glm1$bic
 
@@ -85,10 +106,59 @@ BIC_from_Lambda_try_models[i] <- glm1$bic
 
 plot(Lambda_try, BIC_from_Lambda_try_models)
 
-Glm_final <- glmmLasso( y ~  x1 + x2+ x3+x4+x5+x6 , rnd = list(year_factor=~1), family = poisson(link = log), data = DATA, lambda= Chosen_Lambda)
+```
+Try running just the model with a random lamba value to see if it works 
+
+```{r}
+glm1 <- glmmLasso(occ ~ Transect + TP + 
+                    Growth_form + Colour_morph + Size + 
+                    Colour + Other_mortality + 
+                    Dim.1 + Dim.2 + Dim.3 + Dim.4,
+                   rnd = list(Transect=~1), family = binomial, data = disease.vars, lambda=0.5)
 
 ```
-    
+ Lambda selection 
+ 
+```{r}
+#set lambdas... go from 0 to 10^5, in 10 log steps
+lambda <- 10^seq(-3,5, length=10)
+
+#dummy vectors of model fit values for each lambda: BIC, AIC, prediction error
+ 
+
+BIC_vec <- rep(Inf, length(lambda))
+AIC_vec <- rep(Inf, length(lambda))
+
+
+j<-1
+for (j in 1:length(BIC_vec)){
+ print(paste("Iteration ", j, sep=""))
+
+glm1 <- try(
+ glmmLasso(occ ~ Transect + 
+             TP + 
+             Growth_form + 
+             Colour_morph + 
+             Size + 
+             Colour + 
+             Other_mortality + 
+             Dim.1 +
+             Dim.2 + 
+             Dim.3 + 
+             Dim.4,
+           data = disease.vars, rnd = list(Transect=~1), family = binomial,  lambda = lambda[j],))
+   
+# code to make it continue anyway if an error occurs
+if(class(glm1)!="try-error")
+# 
+ #save BIC, AIC
+ BIC_vec[j]<-glm1$bic
+ AIC_vec[j]<-glm1$aic 
+ 
+}
+ 
+```
+ 
     
     
     
