@@ -10,9 +10,7 @@ This is code for colony-level statistical analysis on disease dynamics.
 
 **Notes**
 
-
 Model-selection using lasso - Lasso reduces the variable selection problem to the selection of a single penalty parameter and then the coefficient estimation follows naturally. The key parameter when fitting the lasso is λ, the penalty parameter. We choose λ based on an iterative testing approach, where BIC (lowest) is used to choose lambda.
-
 
 1) Disease occurance (presence/absence)
     a) GLMM specification 
@@ -50,29 +48,40 @@ library(sjPlot)
 library(sjmisc)
 library(sjlabelled)
 
-# Transect-level analysis rda file
-colony_analysis <- read.csv("colony_level_analysis.csv")
-PCA_results <- read.csv("Benthic_PCA_eigenvectors.csv")
+# Colony-level analysis rda file
 
-str(colony_analysis)
-str(PCA_results)
+cl <- read.csv("Colony_data_analysis.csv")
+load("Colony_data_analysis.rda")
+str(disease.vars)
 
-colony_analysis$transect_ID <- as.factor(colony_analysis$transect_ID)
+# Make site variable
 
-# Merge PCA analysis with colony analysis 
+disease.vars$Site <- ifelse(grepl("EB",disease.vars$Transect_ID),"EB","SB")
+
+disease.vars$Site <- as.factor(disease.vars$Site)
+str(disease.vars)
 
 
-disease.vars <- merge(colony_analysis,PCA_results, sort = FALSE)
+head(disease.vars)
+
 
 
 ```
     
-# Occurance    
+1) Disease occurance (presence/absence)
+
+1) Disease occurance (presence/absence)
+    a) Lasso: cross validation to select lambda
+    b) Run glmmLASSO Model 
+    c) Run glmer for visualisation of results and diagnostics (this may not be nec, see if we can get glmmLASSO to give fixed effects)
+    d) Results 
+    
+    # Note: SEs are conditional on model-selection techniques.
     
 ```{r}
-# Code a dummy variable for healthy/diseased individuals 
 
-disease.vars$occ <- ifelse(disease.vars$Healthy == "Diseased",1,0)
+
+str(disease.vars)
 
 library(glmmLasso)
 library(dplyr)
@@ -82,7 +91,11 @@ library(tidyr)
 
 #create a list of lambda’s to try. 
 
-Lambda_try <- c(0.1,0.5,1,2,3,4,5,10)
+# First look to see which range of lambda values have the lowest BIC
+Lambda_try <- seq(100,0,by=-5)
+
+# Explore this further 
+Lambda_try <- c(20:30)
 
 #initialise a vector to store the BIC’s
 BIC_from_Lambda_try_models <- c()
@@ -92,11 +105,35 @@ BIC_from_Lambda_try_models <- c()
 for (i in 1: length(Lambda_try)){
   
 #customise formula, random effect, family and dataset
-glm1 <- glmmLasso(occ ~ Transect + TP + 
-                    Growth_form + Colour_morph + Size + 
-                    Colour + Other_mortality + 
-                    Dim.1 + Dim.2 + Dim.3 + Dim.4,
-                   rnd = list(Transect=~1), family = binomial, data = disease.vars, lambda=Lambda_try[i])
+glm1 <- glmmLasso(occ ~ 
+                    Site + 
+                    TP + 
+                    Growth_form + 
+                    Colour_morph + 
+                    Size + 
+                    Colour + 
+                    new_Other_mortality + 
+                    new_Dim.1 + 
+                    new_Dim.2 + 
+                    new_Dim.3 + 
+                    new_Dim.4 +
+                    Site:TP + 
+                    Growth_form:TP +
+                    Colour_morph:TP + 
+                    Colour:TP + 
+                    Size:TP +
+                    new_Other_mortality:TP + 
+                    Growth_form:Site +
+                    Colour_morph:Site + 
+                    Colour:Site + 
+                    Size:Site +
+                    new_Other_mortality:Site +
+                    new_Dim.1:Site + 
+                    new_Dim.2:Site + 
+                    new_Dim.3:Site + 
+                    new_Dim.4:Site,
+          
+                    rnd = list(Transect_ID=~1), family = binomial(), data = disease.vars, lambda = Lambda_try[i])
 
 BIC_from_Lambda_try_models[i] <- glm1$bic
 
@@ -106,17 +143,530 @@ BIC_from_Lambda_try_models[i] <- glm1$bic
 
 plot(Lambda_try, BIC_from_Lambda_try_models)
 
+
+
 ```
-Try running just the model with a random lamba value to see if it works 
+  b) Run glmmLASSO Model 
 
 ```{r}
-glm1 <- glmmLasso(occ ~ Transect + TP + 
-                    Growth_form + Colour_morph + Size + 
-                    Colour + Other_mortality + 
-                    Dim.1 + Dim.2 + Dim.3 + Dim.4,
-                   rnd = list(Transect=~1), family = binomial, data = disease.vars, lambda=0.5)
+
+str(disease.vars)
+library(lmerTest)
+
+glm2 <- glmmLasso(occ ~ 
+                    Site + 
+                    TP + 
+                    Growth_form + 
+                    Colour_morph + 
+                    Size + 
+                    Colour + 
+                    new_Other_mortality + 
+                    new_Dim.1 + 
+                    new_Dim.2 + 
+                    new_Dim.3 + 
+                    new_Dim.4 +
+                    Site:TP + 
+                    Growth_form:TP +
+                    Colour_morph:TP + 
+                    Colour:TP + 
+                    Size:TP +
+                    new_Other_mortality:TP + 
+                    Growth_form:Site +
+                    Colour_morph:Site + 
+                    Colour:Site + 
+                    Size:Site +
+                    new_Other_mortality:Site +
+                    new_Dim.1:Site + 
+                    new_Dim.2:Site + 
+                    new_Dim.3:Site + 
+                    new_Dim.4:Site,
+          
+                   rnd = list(Transect_ID=~1), family = binomial(), data = disease.vars, lambda=23,final.re=TRUE)
+
+# Model summary 
+summary(glm2)
+
+glm2$coefficients
+glm2$ranef
+plot(glm2$fitted.values)
+summary(glm2)
+
+## odds ratios only
+
+exp(coef(glm2))
+
+
+# Need to have a play around here and see if we can get fixed effects in interactions to also have a coeficient. 
+
+
+
+
+library(ggeffects)
+
+# dat is a data frame with marginal effects
+
+library(sjPlot)
+library(sjlabelled)
+library(sjmisc)
+library(ggplot2)
+effects::allEffects(glm1)
+
+theme_set(theme_sjplot())
+
+plot(glm1)
+
+tibble(
+  variables  = glm1 %>% tidy() %>% select(glm1),
+  log_OR                 = coef(glm1)) %>% 
+  cbind(odds.ratio(glm1)) %>% 
+  mutate(percent_change  = ifelse(OR < 1, (1/OR - 1)*-100, (OR - 1)*100  ),
+         lower_percent_change = ifelse(lower_OR < 1, (1/lower_OR - 1)*-100, (lower_OR - 1)*100  ),
+         upper_percent_change = ifelse(upper_OR < 1, (1/upper_OR - 1)*-100, (upper_OR - 1)*100  )) %>%
+  mutate_if(is.numeric, ~round(., 3)) %>% 
+  select(variables, log_OR, OR, percent_change()) # %>% 
+  #kable()
+
+library(effects)
+
+result <- allEffects(glm1$coefficients)
 
 ```
+ 
+c) Run glmer for visualisation of results and diagnostics
+ 
+```{r}
+
+library(DHARMa)
+
+glmm.occ.full <- glmer(occ ~ 
+                    Site + 
+                    TP + 
+                    Growth_form + 
+                    Colour_morph + 
+                    Size + 
+                    Colour + 
+                    new_Other_mortality + 
+                    new_Dim.1 + 
+                    new_Dim.2 + 
+                    new_Dim.3 + 
+                    new_Dim.4 +
+                    Site:TP + 
+                    Growth_form:TP +
+                    Colour_morph:TP + 
+                    Colour:TP + 
+                    Size:TP +
+                    new_Other_mortality:TP + 
+                    Growth_form:Site +
+                    Colour_morph:Site + 
+                    Colour:Site + 
+                    Size:Site +
+                    new_Other_mortality:Site +
+                    new_Dim.1:Site + 
+                    new_Dim.2:Site + 
+                    new_Dim.3:Site + 
+                    new_Dim.4:Site
+           + (1|Transect_ID),
+                    family = binomial(), data = disease.vars)
+
+# Check diagnostics in DHARMa
+plot(simulateResiduals(glmm.occ.full))
+
+glmm.occ.reduced <- glmer(occ ~ 
+                    Site + 
+                    TP + 
+                    Size +
+                    new_Dim.2 + 
+                    Size:TP +
+                    Size:Site +
+                    new_Dim.2:Site + 
+           + (1|Transect_ID),
+                    family = binomial(), data = disease.vars)
+
+plot(simulateResiduals(glmm.occ.reduced))
+
+```
+
+
+```{r}
+
+library(effects)
+
+summary(glmm.occ.reduced)
+plot(allEffects(glmm.occ.reduced))
+
+# Get transformed table of coefficients
+
+allEffects(glmm.occ.reduced) %>% summary()
+
+
+# Make a forest plot of selected variables and model coefficients
+
+plot_model(glmm.occ.reduced, type = "std") +theme_538()
+
+pmo <- plot_model(glmm.occ.reduced, 
+           transform      = NULL, 
+           show.intercept = T,
+           show.values    = TRUE, 
+           value.offset   = .3) +theme_minimal()
+
+
+# eemeans try and plot interaction 
+library(emmeans)
+emmip(glmm.occ.reduced, Size ~ TP, CIs=F, plotit=T)+theme_classic()
+
+b <- emmip(glmm.occ.reduced, TP ~ Size, type = "response") + theme_minimal()
+c <- emmip(glmm.occ.reduced, Site ~ Size, type = "response") + theme_minimal()
+
+# Eek do you really want to show CI here...I think NOT 
+# Probably dont add to the final model (points, CI)
+#plot_model(glmm.occ.reduced, type = "pred", terms = #c("new_Dim.2","Site"),show.data = T)+theme_blank()
+
+# Replot 
+
+d <- plot_model(glmm.occ.reduced, type = "pred", terms = c("new_Dim.2","Site"))+ theme_minimal()
+
+
+
+library(patchwork)
+ok <- (pmo + b+c+d)
+
+
+```
+
+REPORT RESULTS OF GRAPHS (QUOTE PROBABILITIES _ MAKE A TABLE < OR ADD TO PLOT
+MAKE A DISCLAIMER THAT SE WERE NOT USED BEYOND INITIAL PLOTTING OF REGRESSION MODEL RESULTS _ INSTEAD WE DISCUSS RESULTS BASED ON COEFFCIENTS AND MODELLED PREDICTED VALUES)
+
+https://yury-zablotski.netlify.app/post/multiple-logistic-regression-with-interactions/ (ADD NUMBERS TO THIS)
+
+REPEAT THIS FOR AREA (SEVERITY)
+
+c) Interpretation 
+
+Calculate
+
+Plot the coefficients
+
+```{r}
+# https://www.mihiretukebede.com/posts/2020-09-30-2020-09-30-plotting-model-coefficients-in-a-forest-plot/
+# Coefficient plot 
+occ.coef <- as.data.frame(glm1$coefficients)
+
+coef_occ <- occ.coef %>% mutate(variable=rownames(occ.coef))
+
+
+plot_glm <- ggplot(coef_occ, aes(x=variable, y=glm1$coefficients)) +
+  geom_point(shape = 15,
+             size  = 4, width = 0.1,
+             position = "dodge", color="black") + 
+  theme(axis.title = element_text(face = "bold")) +
+  xlab("Variables") + ylab("Beta coeffecients GLMM Lasso") +
+  coord_flip() + 
+  geom_hline(yintercept = 0, color = "red", size = 1) +
+   theme(axis.title = element_text(size = 17)) + 
+  theme(axis.text = element_text(size = 14)) 
+plot_glm
+
+m4_df <- coef(summary(glm1)) %>%
+    data.frame() %>%
+    tibble::rownames_to_column("term") %>%
+    rename(estimate = Estimate, std.error = StdErr)
+m4_df
+
+dwplot(m4_df)
+plot_model(m4_df)
+
+# Coefficient plot 
+occ.coef.ran <- as.data.frame(glm1$ranef)
+
+coef_occ.ran <- occ.coef.ran %>% mutate(variable=rownames(occ.coef.ran))
+
+plot_glm_random <- ggplot(coef_occ.ran, aes(x=variable, y=glm1$ranef)) +
+  geom_point(shape = 15,
+             size  = 4, width = 0.1,
+             position = "dodge", color="black") + 
+  theme(axis.title = element_text(face = "bold")) +
+  xlab("Variables") + ylab("Beta coeffecients GLMM Lasso") +
+  coord_flip() + 
+  geom_hline(yintercept = 0, color = "red", size = 1) +
+   theme(axis.title = element_text(size = 17)) + 
+  theme(axis.text = element_text(size = 14)) +
+theme_classic()
+plot_glm_random
+
+```
+
+ 2) Disease severity (% of colony impacted by disease)
+    a) GLMM specification 
+    b) Lasso: cross validation to select lambda
+ 
+ 
+```{r}
+
+hist(disease.vars$Area)
+hist(log(disease.vars$Area))
+
+
+
+mean(disease.vars$Area)
+
+```
+ 
+```{r}
+
+# Code a dummy variable for healthy/diseased individuals 
+
+# Linear mixed model LASSO 
+
+str(disease.vars)
+
+# Filter out only diseased corals 
+
+disease.vars.sev <- disease.vars %>% filter(Healthy == "Diseased")
+disease.vars.sev$Transect_ID <- as.factor(disease.vars.sev$Transect_ID)
+
+library(glmmLasso)
+library(dplyr)
+library(tidyr)
+
+# Try using other code. 
+
+#create a list of lambda’s to try. 
+
+
+Lambda_try_sev <- seq(100,0,by=-5)
+
+Lambda_try_sev<-c(30:39,40:50)
+
+#initialise a vector to store the BIC’s
+BIC_from_Lambda_try_models_sev <- c()
+
+# loop through the Lambda_try to see what the BIC of each resulting model is. 
+
+for (i in 1: length(Lambda_try_sev)){
+  
+#customise formula, random effect, family and dataset
+glm3 <- glmmLasso(log(Area) ~ Site + 
+                    TP + 
+                    Growth_form + 
+                    Colour_morph + 
+                    Size + 
+                    Colour + 
+                    new_Other_mortality + 
+                    new_Dim.1 + 
+                    new_Dim.2 + 
+                    new_Dim.3 + 
+                    new_Dim.4 +
+                    Site:TP + 
+                    Growth_form:TP +
+                    Colour_morph:TP + 
+                    Colour:TP + 
+                    Size:TP +
+                    new_Other_mortality:TP + 
+                    Growth_form:Site +
+                    Colour_morph:Site + 
+                    Colour:Site + 
+                    Size:Site +
+                    new_Other_mortality:Site +
+                    new_Dim.1:Site + 
+                    new_Dim.2:Site + 
+                    new_Dim.3:Site + 
+                    new_Dim.4:Site, rnd = list(Transect_ID=~1), data = disease.vars.sev, lambda = Lambda_try_sev[i])
+
+BIC_from_Lambda_try_models_sev[i] <- glm3$bic
+
+}
+
+#plot the BIC’s versus Lambda_try
+
+plot(Lambda_try_sev,BIC_from_Lambda_try_models_sev)
+
+# 45!
+```
+
+
+```{r}
+
+glm4 <- glmmLasso(log(Area) ~ Site + 
+                    TP + 
+                    Growth_form + 
+                    Colour_morph + 
+                    Size + 
+                    Colour + 
+                    new_Other_mortality + 
+                    new_Dim.1 + 
+                    new_Dim.2 + 
+                    new_Dim.3 + 
+                    new_Dim.4 +
+                    Site:TP + 
+                    Growth_form:TP +
+                    Colour_morph:TP + 
+                    Colour:TP + 
+                    Size:TP +
+                    new_Other_mortality:TP + 
+                    Growth_form:Site +
+                    Colour_morph:Site + 
+                    Colour:Site + 
+                    Size:Site +
+                    new_Other_mortality:Site +
+                    new_Dim.1:Site + 
+                    new_Dim.2:Site + 
+                    new_Dim.3:Site + 
+                    new_Dim.4:Site, rnd = list(Transect_ID=~1),
+                    data = disease.vars.sev, lambda=45,final.re=TRUE)
+glm4$coefficients
+str(coef)
+coefsev <- as.tibble(coef)
+
+glm4$ranef
+summary(glm4)
+
+```
+
+# Model diagnostics 
+```{r}
+
+# Full model 
+
+lmm5 <- lmer(log(Area) ~ Site + 
+                    TP + 
+                    Growth_form + 
+                    Colour_morph + 
+                    Size + 
+                    Colour + 
+                    new_Other_mortality + 
+                    new_Dim.1 + 
+                    new_Dim.2 + 
+                    new_Dim.3 + 
+                    new_Dim.4 +
+                    Site:TP + 
+                    Growth_form:TP +
+                    Colour_morph:TP + 
+                    Colour:TP + 
+                    Size:TP +
+                    new_Other_mortality:TP + 
+                    Growth_form:Site +
+                    Colour_morph:Site + 
+                    Colour:Site + 
+                    Size:Site +
+                    new_Other_mortality:Site +
+                    new_Dim.1:Site + 
+                    new_Dim.2:Site + 
+                    new_Dim.3:Site + 
+                    new_Dim.4:Site
+                    + (1|Transect_ID), data = disease.vars.sev)
+
+# Check diagnostics
+plot(simulateResiduals(lmm5))
+
+# Reduced model 
+
+lmm6 <- lmer(log(Area) ~  Site +
+               new_Dim.2 + 
+               Site:new_Dim.2 +
+               (1|Transect_ID), data = disease.vars.sev)
+
+# Check diagnostics
+plot(simulateResiduals(lmm6))
+
+```
+
+# Summary of modelling and plotting for final figures 
+
+```{r}
+
+summary(lmm6
+        )
+
+# Get transformed table of coefficients
+
+allEffects(lmm6) %>% summary()
+
+
+# Make a forest plot of selected variables and model coefficients
+
+plot_model(lmm6, type = "std") +theme_538()
+
+pms <- plot_model(lmm6, 
+           transform      = NULL, 
+           show.intercept = T,
+           show.values    = TRUE, 
+           value.offset   = .3) +theme_minimal()
+
+pms
+f <- plot_model(lmm6, type = "pred", terms = c("new_Dim.2","Site"))+ theme_minimal()
+
+f
+
+library(patchwork)
+ok <- (pmo + b+c+d)
+
+
+```
+
+
+
+
+
+
+```{r}
+
+occ.coef <- as.data.frame(glm4$coefficients)
+
+coef_occ <- occ.coef %>% mutate(variable=rownames(occ.coef))
+
+
+plot_lm <- ggplot(coef_occ, aes(x=variable, y=glm4$coefficients)) +
+  geom_point(shape = 15,
+             size  = 4, width = 0.1,
+             position = "dodge", color="black") + 
+  theme(axis.title = element_text(face = "bold")) +
+  xlab("Variables") + ylab("Beta coeffecients GLMM Lasso") +
+  coord_flip() + 
+  geom_hline(yintercept = 0, color = "red", size = 1) +
+   theme(axis.title = element_text(size = 17)) + 
+  theme(axis.text = element_text(size = 14)) 
+plot_lm
+
+plot_model(glmm.occ.reduced, type = "std") + theme_classic() 
+
+# Coefficient plot 
+occ.coef.ran <- as.data.frame(glm4$ranef)
+
+coef_occ.ran <- occ.coef.ran %>% mutate(variable=rownames(occ.coef.ran))
+
+plot_glm_random <- ggplot(coef_occ.ran, aes(x=variable, y=glm4$ranef)) +
+  geom_point(shape = 15,
+             size  = 4, width = 0.1,
+             position = "dodge", color="black") + 
+  theme(axis.title = element_text(face = "bold")) +
+  xlab("Variables") + ylab("Beta coeffecients GLMM Lasso") +
+  coord_flip() + 
+  geom_hline(yintercept = 0, color = "red", size = 1) +
+   theme(axis.title = element_text(size = 17)) + 
+  theme(axis.text = element_text(size = 14)) +
+theme_classic()
+plot_glm_random
+
+```
+
+
+
+
+
+
+
+ 
+ 
+ 
+ 
+ PLOTTING 
+ 
+ https://stats.stackexchange.com/questions/47020/plotting-logistic-regression-interaction-categorical-in-r
+ 
+ https://blogs.uoregon.edu/rclub/2016/04/05/plotting-your-logistic-regression-models/
+ 
+ https://stackoverflow.com/questions/35366499/ggplot2-how-to-combine-histogram-rug-plot-and-logistic-regression-prediction
+ 
  Lambda selection 
  
 ```{r}

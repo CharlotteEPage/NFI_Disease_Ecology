@@ -4,35 +4,38 @@ output: html_notebook
 author: Charlotte E Page
 ---
 
-## NFI Benthic Cover data analysis 
 
-# This is a script for preliminary data clean up and analysis of benthic cover data. Data collected from photoquadrats in Emily and Slaughter Bay, over two time points. 
+# NFI Benthic Cover data analysis and PCA
+
+
+This is a script for data clean up and analysis of benthic cover data. Data collected from photoquadrats in Emily and Slaughter Bay, over two time points. 
 
 TP1: Dec (2020)
 TP2: April (2021)
 
-Total of n = 12 transects per TP. n ~ 10 photoquads per transect (note: in some instances n is lower than 0, this was due to error in the field)
+Total of n = 12 transects per TP. n ~ 10 photoquads per transect (note: in some instances n is lower than 0, this was due to error in the field or in post-processing)
 
 All hard coral and algal taxa were identified to genera. Where multiple growth forms existed within each genera, data has been originally binned into these growth forms (within genera). Growth form bins for each genera will be grouped to genera for quantification of cover. 
 
-Aim:  A) Summary data for relative Montipora cover data (i. Total Montipora cover
-                                                        ii. Relative Montipora cover over time - does it change
-                                                        iii. Relative Montipora (by growth form) cover, does it 
-                                                        change over time?)
-      B) Generate driver variables that can be used in modelling disease occurence and disease severity. 
+Script aims:  
 
-a. Total coral cover (across all time points) 
-b. Absolute coral cover for all major (> a threshold 5% absolute cover) 
-c. Montipora host cover (all transects)
+A) Tidy data format (long)
 
+B) Filter coral genera into categories based on cover.
+      
+C) PCA - Generate driver variables that can be used in modelling disease occurence and disease severity. 
 
 Data download and tidy
 
 ```{r}
 library(ggplot2)
-library(dplyr)
 library(tidyr)
+library(dplyr)
 library(ggthemes)
+library(factoextra) 
+library(tidymodels)
+
+# Visualising PCA analysis results
 
 cover <- read.csv(file= "NFI_cover_data.csv", header = TRUE)
 
@@ -40,15 +43,16 @@ str(cover)
 
 ```
 
+### A) Tidy data format (long)
+
+
 ```{r}
 
 # Transpose the data frame
 t.cover <- cover %>% gather(Genera, Cover, Acanthastrea:Valonia)
 str(t.cover)
 
-# Assign genera and cover as factors
-t.cover$Genera <- as.factor(t.cover$Genera)
-t.cover$Cover <- as.numeric(t.cover$Cover)
+# Generate some summary plots
 
 # Summarise cover by Date, genera and transect
 t.cover.freq <- t.cover %>% group_by(Date,Transect_ID,Genera) %>%
@@ -62,22 +66,18 @@ cover.sum <- t.cover.freq %>%
   SE_freq = sd(freq)/sqrt(n()))
 
 str(cover.sum)
-  
-p <- ggplot(cover.sum, aes(x = Date, y = mean.freq, fill = Genera)) +
-      geom_bar(position="fill", stat="identity")
 
-p <- ggplot(t.cover.freq, aes(x = Genera, y = freq)) +
+ggplot(cover.sum, aes(x = Date, y = mean.freq, fill = Genera)) +
+      geom_bar(position="fill", stat="identity") + scale_fill_viridis_d()
+
+ggplot(t.cover.freq, aes(x = Genera, y = freq)) +
       geom_boxplot() +
       facet_wrap(~Date) +
 theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
 
-p
-
 ```
 
-Need to make some new variable labels
-
-Cover categories 
+Organise cover ID into categories 
 
 ```{r}
 
@@ -85,7 +85,7 @@ Cover categories
 
 # First list the values in the Genera column
 
-levels(t.cover.freq$Genera)
+# levels(t.cover.freq$Genera)
 
 benthic.cats <- t.cover.freq %>%
   mutate(Category = 
@@ -121,39 +121,41 @@ relevel(benthic.cats$Date,"April")
 ggplot(benthic.cats, aes(x = Category, y = freq, fill = Date)) +
   geom_boxplot()
 
+ggplot(benthic.cats, aes(x = Date, y = freq, fill = Category)) +
+      geom_bar(position="fill", stat="identity") +
+      scale_fill_viridis_d()
+
 ```
 
 
-# A) Summary data for relative Montipora cover data (i. Total Montipora cover
-#                                                   ii. Relative Montipora cover over time - does it change
-#                                                   iii. Relative Montipora (by growth form) cover, does it 
-#                                                        change over time?)
+### B) Filter coral genera into categories based on cover.
 
 
-Data cleans + variable formation 
-# Find coral variables of interest (taxa < 10 % cover)
+Find coral genera of interest (taxa < 10 % relative cover)
 
-Caclulate the relative coral cover per group
+
 ```{r}
-
+# Caclulate the relative coral cover per group
 # Convert Category variable to a factor 
-benthic.cats$Category <- as.factor(benthic.cats$Category)
+str(benthic.cat)
+
+benthic.cats <- as.data.frame(benthic.cats)
+
+benthic.cats[,"Category"] <- as.factor(benthic.cats[,"Category"])
+
 
 # Relevel Date so that December comes first 
-benthic.cats$Date <- factor(benthic.cats$Date, levels = c("Dec", "April"))
+benthic.cats[,"Date"] <- factor(benthic.cats[,"Date"], levels = c("Dec", "April"))
 
 # Look at the levels
-levels(benthic.cats$Category)
 head(benthic.cats)
 
 # Filter out Hard_coral
 hard_coral <- benthic.cats %>% filter(Category == "Hard_coral")
 
 # Calculate total hard coral cover (%)
-
 hc_tran <- hard_coral %>% group_by(Date, Transect_ID) %>%
  mutate(t_hardcoral = sum(freq))
-
 
 hc_trana <- hc_tran %>% mutate(rel_hardcoral = (freq/t_hardcoral)*100)
 
@@ -164,7 +166,6 @@ coralrelsum <- hc_trana %>% group_by(Date,Genera) %>%
             SD_freq = sd(rel_hardcoral),
             SE_freq = sd(rel_hardcoral/sqrt(n()))) 
 
-  
 # plot relative coral cover of genera over time
 colours <- c("cyan2", "darkcyan")
 
@@ -188,376 +189,10 @@ a
 
 Acropora, Montipora, other branching (p.dam, stylo), other hermatypic coral are the dominant reef building taxa. 
 
-
-```{r}
-str(benthic.cats)
-
-# Convert Category variable to a factor 
-benthic.cats$Category <- as.factor(benthic.cats$Category)
-
-# Look at the levels
-levels(benthic.cats$Category)
-
-# Filter out Hard_coral
-hard_coral <- benthic.cats %>% filter(Category == "Hard_coral")
-
-######## Relative coral cover - (as a percentage of all hard coral cover in each transect)
-
-# Calculate the hard coral cover per transect (per colony)
-
-aa <- hard_coral %>% group_by(Date, Transect_ID) %>%
- mutate(t_hardcoral = sum(freq))
-str(total_hc)
-
-
-# Calculate total hard coral cover per transect
-total_hc <- hard_coral %>% group_by(Date, Transect_ID) %>%
-  summarise(t_hardcoral = sum(freq))
-str(total_hc)
-
-### Relative cover by GROWTHFORM
-
-# Encrusting
-# Filter out encrusting corals
-menc <- hard_coral %>% filter(Genera == "Montipora_enc")
-# Now join montitotal with the total hard coral % for each transect
-rel.menc <- merge(menc,total_hc, by= c("Date","Transect_ID"))
-head(rel.menc)
-
-# New variable for relative cover per transect 
-#rel.mencr <- rel.menc %>% mutate(rel.mencprop = freq/t_hardcoral) %>% 
- # mutate(rel.per = rel.mencprop * 100 )
-# Foliose
-mfol <- hard_coral %>% filter(Genera == "Montipora_fol")
-
-# Now join montitotal with the total hard coral % for each transect
-rel.fol <- merge(mfol,total_hc, by= c("Date","Transect_ID"))
-
-
-# Make one data frame (useful for plotting)
-
-rf <- rel.fol %>% select(Date, Transect_ID,t_hardcoral, Genera, freq)
-
-
-rm <- rel.menc %>% select(Date, Transect_ID,t_hardcoral, Genera, freq)
-
-rel.growthform <- rbind(rf,rm)
-
-# Add a new variable that is relative cover per growth form
-
-aaa <- aa %>% mutate(relative_coverprop = rel./t_hardcoral) %>% 
-  mutate(relative_coverper = rel * 100 )
-
-
-### Relative cover all MONTIPORA!
-# Join dataframes together
-monti <- rbind(menc,mfol)
-montitotal <- monti %>% group_by(Date, Transect_ID) %>%
-  summarise(monti_cover = sum(freq))
-
-# Now join montitotal with the total hard coral % for each transect
-aa <- merge(montitotal,total_hc, by= c("Date","Transect_ID"))
-# New variable for relative cover per transect 
-
-aaa <- aa %>% mutate(relative_coverprop = monti_cover/t_hardcoral) %>% 
-  mutate(relative_coverper = relative_coverprop * 100 )
-
-head(aaa)
-
-
-
-
-```
-                                              
-i. Total Monti Cover 
-
-```{r}
-# Absolute cover by date
-monti %>% group_by(Date) %>% 
-  summarise(
-          count = n(),
-          mean_freq = mean(freq, na.rm = TRUE),
-          SD_freq = sd(freq),
-          SE_freq = sd(freq)/sqrt(n()))
-
-# Total absolute cover 
-monti %>% mutate (monti = "Monti") %>%
-  group_by(monti) %>%
-  summarise(
-          count = n(),
-          mean_freq = mean(freq, na.rm = TRUE),
-          SD_freq = sd(freq),
-          SE_freq = sd(freq)/sqrt(n()))
-          
-# Absolute cover by growth form
-monti %>% group_by(Genera) %>% 
-  summarise(
-          count = n(),
-          mean_freq = mean(freq, na.rm = TRUE),
-          SD_freq = sd(freq),
-          SE_freq = sd(freq)/sqrt(n()))
-
-```
-
-Make a theme for your plots
-
-```{r}
-
-
-```
-
-ii. Relative Montipora cover over time 
-
-```{r}
-
-aaa$Date <- factor(aaa$Date, levels = c("Dec", "April"))
-
-montisum <- aaa %>% group_by(Date) %>% 
-  summarise(
-          count = n(),
-          mean_freq = mean(relative_coverper, na.rm = TRUE),
-          SD_freq = sd(relative_coverper),
-          SE_freq = sd(relative_coverper)/sqrt(n()))
-
-# basic ggplot 
-
-ggplot(aaa, aes(Date,relative_coverper)) + 
-  geom_boxplot() 
-
-# Barplot 
-# Average across transects for plot 
-
-ggplot(montisum, aes(Date, mean_freq)) +
- geom_col() +
- geom_errorbar(aes(ymin = mean_freq - SE_freq, ymax = mean_freq + SE_freq), width=0.05) +
-  scale_y_continuous(limits = c(0,100)) +
-  #geom_label(stat = 'summary', fun.y=mean, aes(label = round(..y.., 1)), nudge_x =0.5 , hjust = 3) +
-  xlab ("Timepoint") +
-  ylab ("Relative cover (%)") + 
-  ggtitle("Relative cover Montipora sp..") +
- theme_few()
-
-```
-
-iii. Relative Montipora (by growth form)                                              
-                                              
-```{r}
-
-str(rel.growthform)
-
-rel.growthform$Date <- factor(rel.growthform$Date, levels = c("Dec", "April"))
-
-
-
-montigfsum <- rel.growthform %>% group_by(Date, Genera) %>% 
-  summarise(
-          count = n(),
-          mean_freq = mean(rel.per, na.rm = TRUE),
-          SD_freq = sd(rel.per),
-          SE_freq = sd(rel.per)/sqrt(n()))
-
-# basic ggplot 
-
-ggplot(rel.growthform, aes(Date,rel.per, fill = Genera)) + 
-  geom_boxplot() 
-
-# Barplot 
-# Average across transects for plot 
-
-ggplot(montigfsum, aes(Genera, mean_freq, fill = Date)) +
- geom_col(position="dodge", stat="identity") +
- geom_errorbar(aes(ymin = mean_freq - SE_freq, ymax = mean_freq + SE_freq), width=0.2, position = position_dodge(.9)) +
-  scale_y_continuous(limits = c(0,50)) +
-  #geom_label(stat = 'summary', fun.y=mean, aes(label = round(..y.., 1)), nudge_x =0.5 , hjust = 3) +
-  xlab ("Timepoint") +
-  ylab ("Relative cover (%)") + 
-  ggtitle("Relative cover Montipora sp..") +
- theme_few()
-
-geom_errorbar(aes(ymin = mean_Num1 - SE_Num, ymax = mean_Num1 + SE_Num), width=0.2, position = position_dodge(.9)) +
-
-```
-                                              
-B) Generate driver variables that can be used in modelling disease occurence and disease severity. 
-CORAL COVER                                              
-
-```{r}
-
-# Data frame with:
-# Total hard coral cover (100%) # dataframe is called:
-# Relative Montipora cover (100%) # dataframe is called:
-
-# Per transect, per time point.
-head(aaa)
-hardcoraldata <- aaa %>% select(Date, Transect_ID,t_hardcoral,relative_coverper)
-
-```
-
-Diveristy variables
-
-Diversity takes into account how many species are present (species richness) and the eveness of species.
-
-Note to self here - conventionally to obtain a biodiverisity measure you need to count the number of individuals per species in any given space.
-
-Simpson's Diversity Index is a measure of diversity which takes into account the number of species present, as well as the relative abundance of each species. As species richness and evenness increase, so diversity increases. The value of D ranges between 0 and 1.
-
-Caveat: For some species, one individual takes up more area than others, means it could be skewed, or
-not really representative of 
-
-What else could I look to do? Note: Observations of individual cover are not independent (e.g. as one group goes up, other groups have to go down) - PCA appropriate?
-
-
-PCA - PC1 and PC2 - representative of community patterns? e.g. PC1 could be forced by dominant species.
-
-Community/assemblage structure - Should look to do a CCA with stableisotope data (add in covarying environmental variables.)
-http://environmentalcomputing.net/introduction-to-mvabund/ - Stable isotope work.
-
------------------------------------------------------------------------------------------------
-- Benthic cover (other - e.g. not coral)
-
-Explore cover categories a little more here.
-Need to decide what we might include in modelling.
-
-- Total Macroalgal cover 
-- Cyano matts (Black, red and other)
-Cyano matt A (black tufts)
-Cyano matt B (red )
-(for coral-algal relationships - look to quantify where the bacterial matts are growing
-e.g. cyano on macroalgae, cyano on coral, cyano on turf, cyano on rubble)
- 
-- CCA
-- Epithilic algal matrix 
-- Sediment 
-
-Total macroalgal cover 
-
-```{r}
-
-str(benthic.cats)
-
-# Convert Category variable to a factor 
-benthic.cats$Category <- as.factor(benthic.cats$Category)
-
-# Look at the levels
-levels(benthic.cats$Category)
-
-# Filter out Macroalgae
-
-macroalgae <- benthic.cats %>% filter(Category == "Macroalgae")
-
-macroalgae_trans <- macroalgae %>% group_by(Date, Transect_ID) %>%
-  summarise(freq_mac = mean(freq)) 
-
-# Absolute cover by date
-macrosum <- macroalgae_trans %>% group_by(Date) %>% 
-  summarise(
-          count = n(),
-          mean_freq = mean(freq_mac, na.rm = TRUE),
-          SD_freq = sd(freq_mac),
-          SE_freq = sd(freq_mac)/sqrt(n()))
-
-# Plot absolute macroalgal cover over time
-
-ggplot(macrosum, aes(Date, mean_freq)) +
- geom_col() +
- geom_errorbar(aes(ymin = mean_freq - SE_freq, ymax = mean_freq + SE_freq), width=0.05) +
-  scale_y_continuous(limits = c(0,1)) +
-  #geom_label(stat = 'summary', fun.y=mean, aes(label = round(..y.., 1)), nudge_x =0.5 , hjust = 3) +
-  xlab ("Timepoint") +
-  ylab ("Absolute cover (%)") + 
-  ggtitle("Absolute cover of Macroalgae") +
- theme_few() +
-   geom_point(
-    ## draw bigger points
-    size = 2,
-    ## add some transparency
-    alpha = .3,
-    ## add some jittering
-    position = position_jitter(
-      ## control randomness and range of jitter
-      seed = 1, width = .2
-    )
-  )
-
-ggplot(macroalgae_trans, aes(Date, freq_macroalgae)) +
- geom_boxplot() +
-  scale_y_continuous(limits = c(0,50)) +
-  #geom_label(stat = 'summary', fun.y=mean, aes(label = round(..y.., 1)), nudge_x =0.5 , hjust = 3) +
-  xlab ("Timepoint") +
-  ylab ("Absolute cover (%)") + 
-  ggtitle("Absolute cover of Macroalgae") +
- theme_few() +
-   geom_point(
-    ## draw bigger points
-    size = 2,
-    ## add some transparency
-    alpha = .3,
-    ## add some jittering
-    position = position_jitter(
-      ## control randomness and range of jitter
-      seed = 1, width = .2
-    )
-  )
-
-ggplot(macroalgae_trans, aes(Date, freq_macroalgae)) +
-  ## add half-violin from {ggdist} package
-  ggdist::stat_halfeye(
-    ## custom bandwidth
-    adjust = .5, 
-    ## adjust height
-    width = .6, 
-    ## move geom to the right
-    justification = -.2, 
-    ## remove slab interval
-    .width = 0, 
-    point_colour = NA
-  ) + 
-  geom_boxplot(
-    width = .12, 
-    ## remove outliers
-    #outlier.color = NA ## `outlier.shape = NA` works as well
-  ) +
-  ## add dot plots from {ggdist} package
-  ggdist::stat_dots(
-    ## orientation to the left
-    side = "left", 
-    ## move geom to the left
-    justification = 1.1, 
-    ## adjust grouping (binning) of observations 
-    binwidth = .25
-  ) + 
-  ## remove white space on the left
-  coord_cartesian(xlim = c(1.2, NA)) +
-  # Setlims
-scale_y_continuous(limits = c(0,50)) 
-
-# Look within macroalgae
-
-```
-
-First of all - look at taxa making up > 10% of relative coral cover 
-
-```{r}
-
-
-
-
-```
-
-
-
-Recategorise 'other' cover into categories I am interested in:
+Recategorise  cover into these categories:
 
 ```{r}
 # Nested if else to create a new variable where genera are sorted into benthic category type.
-
-# First list the values in the Genera column
-
-# If you are gonna do a PCA analysis (which you probably should because you have a lot of non-indenpendent observations that are probably correlated. Need to check this.)
-
-levels(t.cover.freq$Genera)
-
-# First of all, look at hard coral onl
 
 benthic.cats.other <- t.cover.freq %>%
   mutate(Category = 
@@ -576,13 +211,13 @@ benthic.cats.other <- t.cover.freq %>%
       ifelse(Genera %in% c("Sponge","Zooanthid","Benthic_invert"), 
              "Other_benthic_invert",
       ifelse(Genera %in% c("Black_cyano"),
-             "Lyngba",
+             "Lyngbya",
       ifelse(Genera %in% c("Turf"),
              "Turf",
       ifelse(Genera %in% c("Turf_sediment"),
              "Turf_sediment_matrix",
       ifelse(Genera %in% c("Cyanofil","Red_cyano"),
-             "Cyano_mat",
+             "Cyano_matrix",
       ifelse(Genera %in% c("Sediment"),
              "Sediment",
       ifelse(Genera %in% c("Sand","Rubble","Dead_coral"),
@@ -593,19 +228,18 @@ benthic.cats.other <- t.cover.freq %>%
 
 View(benthic.cats.other)
 
+str(benthic.cats.other)
+
+benthic.cats.other$Category <- as.factor(benthic.cats.other$Category)
+
+
+# Relevel Date so that December comes first 
+benthic.cats.other$Date <- factor(benthic.cats.other$Date, levels = c("Dec", "April"))
 
 ```
 
 
-
-
 ```{r}
-
-# Convert Category variable to a factor 
-benthic.cats$Category <- as.factor(benthic.cats$Category)
-
-# Relevel Date so that December comes first 
-benthic.cats$Date <- factor(benthic.cats$Date, levels = c("Dec", "April"))
 
 # Look at the levels
 levels(benthic.cats$Category)
@@ -613,18 +247,6 @@ head(benthic.cats)
 
 # Filter out Hard_coral
 hard_coral <- benthic.cats %>% filter(Category == "Hard_coral")
-
-# Calculate total hard coral cover (%)
-
-hc_tran <- hard_coral %>% group_by(Date, Transect_ID) %>%
- mutate(t_hardcoral = sum(freq))
-str(hc_tran)
-
-hc_trana <- hc_tran %>% mutate(rel_hardcoral = (freq/t_hardcoral)*100)
-# Need to add this variable onto the other dataframe.
-
-# Relevel Date so that December comes first 
-benthic.cats.other$Date <- factor(benthic.cats.other$Date, levels = c("Dec", "April"))
 
 # Summarise data frame (per coral taxa, per time point)
 benthic.cov.sum <- benthic.cats.other %>% group_by(Date,Category,Transect_ID) %>% 
@@ -639,13 +261,17 @@ benthic.cov.sum1 <- benthic.cov.sum %>% group_by(Date,Category) %>%
             SE_freq = sd(rel_mean/sqrt(n()))) 
 
 # plot relative coral cover of genera over time
-colours <- c("cyan2", "darkcyan")
+colours <- c("#61B746","#518794")
+
+# order taxa by grouping for plotting 
+
+benthic.cov.sum1$Category <- factor(benthic.cov.sum1$Category, levels = c("Montipora","Acropora","Other_branching","Hard_coral", "Other_calcifier", "Other_benthic_invert","Soft_coral","Macroalgae","Turf","Turf_sediment_matrix","Lyngbya","Cyano_matrix", "Sediment","Other_substrate"))
 
 plot <- ggplot(benthic.cov.sum1, aes(Category, rel_sum, fill = Date)) +
- geom_col(position = "dodge",stat = "identity") +
+ geom_col(position = "dodge",stat = "identity", alpha = 0.5) +
  geom_errorbar(aes(ymin = rel_sum - SE_freq, ymax = rel_sum + SE_freq), 
-               width=0.2, position = position_dodge(.9), color = "black") +
-  scale_y_continuous(limits = c(0,30)) +
+               width=0.2, position = position_dodge(.9), color = "black", size = 1.3) +
+  scale_y_continuous(limits = c(0,25), breaks =c(0,5,10,15,20,25)) +
   #geom_label(stat = 'summary', fun.y=mean, aes(label = round(..y.., 1)), nudge_x =0.5 , hjust = 3) +
   xlab ("Benthic group") +
   ylab ("Absolute cover (%)") + 
@@ -657,7 +283,15 @@ a <- plot + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) 
 
 a
 
+ggplot(benthic.cats.other, aes(x = Date, y = freq, fill = Category)) +
+      geom_bar(position="fill", stat="identity") +
+      scale_fill_viridis_d() + theme_few()
+
 ```
+
+
+### C) PCA - Generate driver variables that can be used in modelling disease occurence and disease severity.
+
 
 Data cleaning steps
 
@@ -725,8 +359,6 @@ PCA
 
 ```{r}
 
-library(factoextra) # Visualising PCA analysis results
-
 benthicPCA <- princomp(benthic.groups.multivar, cor = FALSE)
 
 summary(benthicPCA)
@@ -735,15 +367,27 @@ screeplot(benthicPCA, type = 'lines')
 
 fviz_eig(benthicPCA, addlabels = TRUE, ylim = c(0,50))
 
-# Loadings 
 
-loadings(benthicPCA)
+# Loadings as a .csv
+
+printl <- loadings(benthicPCA)
+threshold <- 0.1
+dd <- as.data.frame.matrix(printl)
+
+dd[abs(dd) < threshold] <- NA
+
+# Export matrix as csv file for supplemental materials
+write.csv(dd,"Benthic_PCA_loadings.csv")
 
 biplot(benthicPCA)
+
 # Eigenvalues
 eig.val <- get_eigenvalue(benthicPCA)
 eig.val
   
+write.csv(eig.val,"Benthic_PCA_eigenvalues.csv")
+
+
 # Results for Variables
 res.var <- get_pca_var(benthicPCA)
 res.var$coord          # Coordinates
@@ -759,22 +403,64 @@ fviz_contrib(benthicPCA, choice = "var", axes = 1, top = 10)
 fviz_contrib(benthicPCA, choice = "var", axes = 2, top = 10)
 # Contributions of variables to PC3
 fviz_contrib(benthicPCA, choice = "var", axes = 3, top = 10)
+# Contributions of variables to PC4
+fviz_contrib(benthicPCA, choice = "var", axes = 4, top = 10)
 
 # Results for individuals (Eigenvectors)
 res.ind <- get_pca_ind(benthicPCA)
-res.ind$coord          # Coordinates
+eignvec <- res.ind$coord          # Coordinates
 res.ind$contrib        # Contributions to the PCs
 res.ind$cos2           # Quality of representation 
 
+str(eignvec)
 
+dd.eignvec <- as.data.frame.matrix(eignvec)
 
+metadata <- wide.benthic.cats %>%
+  select(1:2)
 
+d.eigenvec <- dd.eignvec %>%
+  select(1:4) %>%
+  cbind(metadata) 
 
-
+write.csv(d.eigenvec,"Benthic_PCA_eigenvectors.csv")
 
 ```
 
-Visualise results 
+Visualise results as a loading plot 
+
+```{r}
+
+plottingloads <- read.csv("Benthic_PCA_loadings.csv")
+str(plottingloads)
+
+plottingloads$X <- as.factor(plottingloads$X)
+plottingloads$Category <- plottingloads$X
+
+
+# Filter out the first 4 PCs
+pl <- plottingloads %>% select(2:5,16)
+head(pl)
+
+# Transpose data frame for plotting 
+
+# Transpose the data frame
+pl.long <- pivot_longer(data = pl,values_drop_na = TRUE, names_to = "Comp",cols = Comp.1:Comp.4)
+pl.long$Category <- factor(pl.long$Category,levels = c("Montipora", "Acropora", "Other_branching", "Sediment","Turf_sediment_matrix","Lyngbya","Cyano_matrix"))
+
+
+# Plot this with values and labels switched
+pl <- ggplot(pl.long, aes(x = Category, y = value, fill = value)) +
+  geom_bar(stat = "identity") +
+  #scale_fill_continuous() +
+  facet_wrap(~Comp,ncol = 4, dir = "h") + 
+  scale_fill_viridis_c() +
+  theme_few() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ylim(-0.9,0.9) +
+  coord_flip() + geom_hline(yintercept=0, color = "grey") 
+
+```
 
 
 ```{r}
@@ -856,10 +542,37 @@ fviz_pca_var(benthicPCA,
              )
 ```
 
-# Also look to see if there is any grouping in benthic community between Emily and Slaughter?
+
+Make a data.frame out of original individual loadings 
+
 
 ```{r}
-groups <- as.factor(wide.benthic.cats$Date)
+benthic.groups.multivar <- wide.benthic.cats %>% ungroup() %>%
+  select(3:16)
+
+library(sjPlot)
+library(sjmisc)
+
+# group
+bgm <- wide.benthic.cats %>% ungroup() %>%
+  select(3:16)
+
+sjp.pca(benthic.groups.multivar, metadata = wide.benthic.cats)
+
+p <- pca(wide.benthic.cats)
+plotloadings(p)
+
+library(PCAtools)
 
 ```
+
+
+
+
+
+
+
+
+
+
 

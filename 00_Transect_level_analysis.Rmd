@@ -6,29 +6,35 @@ author: Charlotte Page
 
 # Transect-level statistical analysis
 
-## A. Spatial analysis (clustering)
+This is code for transect-level statistical analysis on disease dynamics. 
 
-## B. Modelling
 
-### Response variables 
+1) Summary statistics
 
-1) Disease prevalence (% of surveyed community showing active disease signs)
-    a) Build model (hypothesis testing)
 
-2) Disease severity (the best variable for this response needs to be assessed)
-    a) Step one: Investigate relationships between disease severity and lesion number NEED TO ADD THIS INTO THE DATA SET
-    b) Step two: Build model (hypothesis testing)
+2) Disease prevalence (% of surveyed community showing active disease signs)
+    a) Build glm (use weights function to specify number of colonies per transect), family = binomial
 
-### Predictor variables 
+
+3) Disease severity (the best variable for this response needs to be assessed)
+    a) Step one: Investigate relationships between disease severity and lesion number 
+    b) Step two: Build model (lm, average is normally distributed)
+    
+    
+4) Cluster analysis
+    a) Step one: Organise data 
+    b) Step two: Calculate distance matrix based on severity and prevalence; and each seperately compared to a zero variable. 
+   
+    
+Predictor variables for models in 2) and 3):
 
 + TP (Dec,April)
 + Site (EB,SB)
-+ Total hard coral cover 
-+ Total Montipora cover
++ Total Montipora cover (%)
++ TP*Site interaction
 
 Libraries and data
 ```{r}
-
 # Libraries 
 library(ggplot2)
 library(dplyr)
@@ -46,38 +52,635 @@ library(splines)
 #library(glmmTMB)#
 library(DHARMa)
 library(devtools)
-devtools::dr_devtools()
+library(pbkrtest)
 
-withr::with_makevars(c(PKG_CPPFLAGS="-DCPPAD_MAX_NUM_THREADS=128"), {
-  remotes::install_github("glmmTMB/glmmTMB/glmmTMB")
-}, assignment="+="
-)
-
-install.packages("glmmTMB")
-
-install.packages("glmmTMB", type="source")
-
-install.packages("~/Downloads/glmmTMB-master.zip", repos=NULL, type="source")
-download.packages('glmmTMB-master.zip',destdir='~/Downloads/')
-
-#or any other url from the list or link
+library(sjPlot)
+library(sjmisc)
+library(sjlabelled)
 
 # Transect-level analysis rda file
-load(transect_level_analysis.rda)
+transect_analysis <- read.csv("transect_level_analysis.csv")
 
-# Make a new variable called transect ID for random effects structure in model
+# Make a new variable called transect ID
+
+transect_analysis$Transect_ID <- paste(transect_analysis$TP, transect_analysis$Transect, sep = "_")
+
+str(transect_analysis)
 
 ```
 
-1) Disease prevalence (% of surveyed community showing active disease signs)
+### 1) Summary statistics
 
-GLMM with Binomial family
+
+Summary data for manuscript 
+
+For table (code this into an actual table?)
+
+```{r}
+
+
+summaryprev <- by(transect_analysis$prev, transect_analysis$TP, summary)
+
+summaryprev_1 <- transect_analysis %>% group_by(TP) %>% 
+  summarise(mean_prev = mean(prev), sd_prev = sd(prev), sample_n = n()) 
+
+summaryprev_1
+
+summaryprev
+
+summarysev <- by(transect_analysis$sev, transect_analysis$TP, summary)
+summarysev
+
+
+summarysev_1 <- transect_analysis %>% group_by(TP) %>% 
+  summarise(mean_sev = mean(severity), sd_sev = sd(severity), sample_n = n()) 
+
+str()
+
+summarymonti <- summary(transect_analysis$Montipora)
+summarymonti
+
+summarythardcoral <- summary(transect_analysis$totalhardcoral)
+summarythardcoral
+
+# Caclulate relative cover of monti
+
+relativemonti <- 6.37/33.28
+
+# Calculate increase in sev over time 
+
+increase <- 15.35 - 9.992
+
+percentincrease <- increase/9.992 
+
+```
+
+For manuscript 
+
+```{r}
+
+# Total corals surveyed at each time point 
+
+number <- transect_analysis %>% group_by(TP) %>% summarise(n = sum(total_corals_surveyed))
+
+summprevSEsite <- transect_analysis %>% group_by(TP, Site) %>% summarise(meanprev = mean(prev),
+                                                                 SEprev = sd(prev)/sqrt(n()))
+
+```
+
+
+### 2) Disease prevalence (% of surveyed community showing active disease signs)
+    
+    
+##### a) Build glm (use weights function to specify number of colonies per transect), family = binomial
+
+
+GLM with Binomial family
 
 Use a weights argument to set the number of trials (i.e. number of surveyed corals per transect), and use the proportion as the response directly.  
 
+Weights arg = number of trails used to generate each proportion. 
+
+
 ```{r}
-str(transect_level)
-glmer(proportion ~ Site + TP + Total_hardcoral + Montipora + (1|Transect_D), weights = total_corals_surveyed , family = binomial(), data=transect_level)
+
+hist(transect_analysis$Montipora)
+
+mod1 <- glm(freq ~ Site * TP +  Montipora, weights = total_corals_surveyed, family = binomial(), data=transect_analysis )
+
+summary(mod1)
+
+Anova(mod1, type = 3)
+
+tab_model(mod1, dv.labels = "Transect-level: Prevalence Model",   string.ci = "Conf. Int (95%)",
+  string.p = "P-Value")
+
+
+exp(coef(mod1))/(1+exp(coef(mod1)))
+
+plot.dat <- data.frame(Site = transect_analysis$Site,
+                       TP = transect_analysis$TP,
+                       Montipora = transect_analysis$TP,
+                       fit = predict(mod1< Site:TP)) 
+#convert those logit values to probabilities
+plot.dat$fit_prob <- exp(plot.dat$fit)/(1+exp(plot.dat$fit))
 
 ```
+
+Test model assumptions 
+
+```{r}
+simulationOutput <- simulateResiduals(fittedModel = mod1, plot = F)
+residuals(simulationOutput)
+
+plot(simulationOutput)
+```
+
+Looks good! 
+
+See that there is a significant interaction between TP and Site. We can do a posthoc test to find out where this difference is.
+
+Code followed:
+https://www.rpubs.com/daharo_calpoly/502695 
+
+```{r}
+library(multcomp)
+
+#Investigating the interaction
+
+#Group the data by groups of interest by creating a new variable
+transect_analysis$groups<-interaction(transect_analysis$Site, transect_analysis$TP)
+
+#Create a post-hoc model
+model_posthoc<-with(data = transect_analysis, glm(freq ~ groups, family=binomial(), weights = total_corals_surveyed))
+
+summary(glht(model_posthoc, linfct = mcp (groups = 
+                                            c("(EB.April)-(SB.April)=0",
+                                              "(EB.December)-(SB.December)=0",
+                                              "(EB.December)-(EB.April)=0",
+                                          "(SB.December)-(SB.April)=0"))), test = adjusted("holm"))
+
+prevmonti<- plot_model(mod1, type = "pred", terms = "Montipora[all]", show.data = TRUE) + theme_classic() 
+plot_model(mod1, type = "int", terms = "SiteSB:TPDecember", show.values = T) + theme_classic() 
+
+m <- plot_model(mod1, type = "pred", terms = "Montipora", show.data = T, show.values = TRUE) + theme_classic()
+m
+
+
+effect_plot(mod1, pred = Montipora, interval = TRUE, plot.points = TRUE,point.size = 1) + theme_classic()
+
+
+
+plot_summs(mod1)
+
+```
+
+### 3) Disease severity 
+
+#####    b) Step two: Build model (lm, average is normally distributed)
+
+```{r}
+library(jtools)
+
+hist(transect_analysis$severity)
+
+transect_analysis$TP <- as.factor(transect_analysis$TP)
+transect_analysis$Site <- as.factor(transect_analysis$Site)
+
+str(transect_analysis)
+
+mod2 <- lm(severity ~  Site * TP + Montipora, data=transect_analysis)
+
+plot(mod2)
+qqnorm(mod2)
+
+summary(mod2) 
+
+anova(mod2)
+tab_model(mod2, dv.labels = "Transect-level: Severity Model",   string.ci = "Conf. Int (95%)",
+  string.p = "P-Value")
+
+# Generate anova table
+
+library(jtools)
+
+Anova(mod2, type = 3)
+
+sevmonti <-plot_model(mod2, type = "pred", terms = "Montipora", show.data = TRUE) + theme_classic()
+
+plot_model(mod2, type = "int", terms = "SiteSB:TPDecember", show.values = T) + theme_classic() 
+
+m1 <- plot_model(mod2, type = "pred", terms = "Montipora", show.data = T, show.values = TRUE) + theme_classic()
+m1
+
+m1 <- plot_model(mod2, type = "pred", terms = "Montipora", show.data = T, show.values = TRUE) + theme_classic()
+m1
+
+effect_plot(mod2, pred = Montipora, interval = TRUE, plot.points = TRUE) + theme_classic()
+
+plot_summs(mod2)
+
+```
+
+
+
+
+
+
+
+```{r}
+
+hist(transect_analysis$severity)
+
+hist(log(transect_analysis$severity))
+
+hist(transect_analysis$Montipora)
+
+hist(log(transect_analysis$Montipora))
+
+# Try running an lmer without transforming - it looks pretty nice and normal tbh
+
+mod3 <- lmer(severity ~  Site * TP + Montipora + (1|Transect), data=transect_analysis)
+
+plot(mod3)
+
+summary(mod3)
+
+# This errors - try without the random effects structure (looks like transect represents v little variance = 0)
+
+mod4 <- lm(severity ~  Site * TP + Montipora, data=transect_analysis)
+
+plot(mod4)
+
+summary(mod4)
+
+anova(mod4)
+
+ggplot(transect_analysis, aes(severity,Montipora)) +
+  geom_point() +
+  geom_smooth(method = "lm", col = "red") +
+  theme_classic()
+
+# Colour points by TP and add regression coefficients onto plot 
+
+# TP1 - Greens
+# Hex code: #5AB350
+
+# TP2 - Blues
+# Hex code: 2DB3B0
+
+montisevplot <- ggplot(transect_analysis, aes(Montipora,severity, colour = TP)) +
+  geom_point() +
+  geom_abline(intercept = 12.371, slope = 0.3612) +
+  theme_classic() +
+  scale_color_manual(values=c("#5AB350", "#2DB3B0")) +
+  theme_classic()
+montisevplot
+
+# Plotting predicted values with confidence intervals (see plotting below)
+
+
+newdat.lme = data.frame(grp = dat$grp,
+                        x1 = dat$x1,
+                        x2 = median(dat$x2) )
+head(newdat.lme)
+
+```
+```
+
+
+
+
+
+Use a parametric bootstrap to test for the effects of variables:
+
+PBmodcomp in the pbkrtest() implements parametric bootstrapping by comparing a full model to a null one. The function simulates data from the null model (the response variable), and then fits these data to the null and full model generated over many simulations to derive a p-value using liklihood testing. 
+
+The advantage of this method is that we do not assume a null dsitribution (i.e. chi-square) but instead create our own null distribution from the data and the model.
+
+
+```{r}
+
+
+
+
+```
+
+
+
+
+
+
+The code in the chunk below is from: 
+
+https://www.r-bloggers.com/2015/02/generating-anova-like-table-from-glmm-using-parametric-bootstrap/
+
+
+```{r}
+anova_merMod<-function(model,rand,w=NULL,seed=round(runif(1,0,100),0),nsim=50){
+  data<-model@frame
+  if(!is.null(w)){
+    data<-data[,-grep("(weights)",names(data))]
+  }
+  
+  resp<-names(model.frame(model))[1]
+  #generate a list of reduced model formula
+  fs<-list()
+  fs[[1]]<-as.formula(paste(resp,"~ 1 +",rand))
+  nb_terms<-length(attr(terms(model),"term.labels"))
+  if(nb_terms>1){
+    for(i in 1:nb_terms){
+      tmp<-c(attr(terms(model),"term.labels")[1:i],rand)
+      fs[[i+1]]<-reformulate(tmp,response=resp)
+    }      
+  }
+  #fit the reduced model to the data
+  
+  fam<-family(model)[1]$family
+  if(fam=="gaussian")
+    {
+    m_fit<-lapply(fs,function(x) lmer(x,data,REML=FALSE))
+  } else if(fam=="binomial"){
+    m_fit<-lapply(fs,function(x) glmer(x,data,family=fam,weights=w))
+  }  else {
+    m_fit <-lapply(fs,function(x) glm(x,data,family=fam,weights=w))}
+  
+  #compare nested model with one another and get LRT values (ie increase in the likelihood of the models as parameters are added)
+  tab_out<-NULL
+  
+  for(i in 1:(length(m_fit)-1)){
+    comp<-PBmodcomp(m_fit[[i+1]],m_fit[[i]],seed=seed,nsim=nsim)    
+    term_added<-attr(terms(m_fit[[i+1]]),"term.labels")[length(attr(terms(m_fit[[i+1]]),"term.labels"))]
+    #here are reported the bootstrapped p-values, ie not assuming any parametric distribution like chi-square to the LRT values generated under the null model
+    #these p-values represent the number of time the simulated LRT value (under null model) are larger than the observe one
+    tmp<-data.frame(term=term_added,LRT=comp$test$stat[1],p_value=comp$test$p.value[2])
+    tab_out<-rbind(tab_out,tmp)
+    print(paste("Variable ",term_added," tested",sep=""))
+  }  
+  print(paste("Seed set to:",seed))
+  return(tab_out)  
+}
+```
+
+```{r}
+
+anova_merMod(model = mod1, w = total_corals_surveyed)
+
+```
+
+
+
+
+
+```{r}
+
+View(transect_level)
+
+mod1 <- glmer(freq ~ Site * TP +  Montipora + (1|Transect), weights = total_corals_surveyed, family = binomial(), data=transect_analysis)
+
+mod2 <- glmer(freq ~ Site * TP + total_corals_surveyed + (1|Transect), weights = total_corals_surveyed, family = binomial(), data=transect_analysis)
+
+summary(mod1)
+summary(mod2)
+
+
+Anova(mod1)
+anova(mod1)
+
+library(MuMIn)
+r.squaredGLMM(mod1)
+
+```
+
+Model diagnostics
+```{r}
+simulationOutput <- simulateResiduals(fittedModel = mod1, plot = F)
+residuals(simulationOutput)
+
+plot(simulationOutput)
+```
+
+Looks good! 
+
+See that there is a significant interaction between TP and Site. We can do a posthoc test to find out where this difference is.
+
+```{r}
+library(lsmeans)
+lsmeans(mod1, pairwise ~ Site | TP, adjust = "Tukey")
+lsmeans(mod1, pairwise ~ TP | Site, adjust = "Tukey")
+```
+
+Difference lies in December between EB and SB (p < 0.01)
+
+### 2) Disease severity (mean % of colony)
+
+-	Log transform the Area variable and then try and do a normal linear mixed effects model.
+
+```{r}
+
+hist(transect_analysis$severity)
+
+hist(log(transect_analysis$severity))
+
+hist(transect_analysis$Montipora)
+
+hist(log(transect_analysis$Montipora))
+
+# Try running an lmer without transforming - it looks pretty nice and normal tbh
+
+mod3 <- lmer(severity ~  Site * TP + Montipora + (1|Transect), data=transect_analysis)
+
+plot(mod3)
+
+summary(mod3)
+
+# This errors - try without the random effects structure (looks like transect represents v little variance = 0)
+
+mod4 <- lm(severity ~  Site * TP + Montipora, data=transect_analysis)
+
+plot(mod4)
+
+summary(mod4)
+
+anova(mod4)
+
+ggplot(transect_analysis, aes(severity,Montipora)) +
+  geom_point() +
+  geom_smooth(method = "lm", col = "red") +
+  theme_classic()
+
+# Colour points by TP and add regression coefficients onto plot 
+
+# TP1 - Greens
+# Hex code: #5AB350
+
+# TP2 - Blues
+# Hex code: 2DB3B0
+
+montisevplot <- ggplot(transect_analysis, aes(Montipora,severity, colour = TP)) +
+  geom_point() +
+  geom_abline(intercept = 12.371, slope = 0.3612) +
+  theme_classic() +
+  scale_color_manual(values=c("#5AB350", "#2DB3B0")) +
+  theme_classic()
+montisevplot
+
+# Plotting predicted values with confidence intervals (see plotting below)
+
+
+newdat.lme = data.frame(grp = dat$grp,
+                        x1 = dat$x1,
+                        x2 = median(dat$x2) )
+head(newdat.lme)
+
+```
+
+# Colours 
+
+Disease - purples 
+
+No disease - greens 
+
+Theme for plotting 
+
+Prevalence plot 
+
+Prevalence by site over time
+```{r}
+
+transect_analysis$TP <- factor(transect_analysis$TP, levels = c("December","April"))
+
+# Summarise prevalence values for plotting - with SE!
+
+prev_sum <- transect_analysis %>% 
+  group_by(TP, Site) %>% 
+  summarise(mean_Prev=mean(prev),
+  sd_Prev = sd(prev),
+  SE_Prev = sd(prev)/sqrt(n()))
+
+
+prevplot <- 
+  ggplot(data = prev_sum, aes(Site, mean_Prev)) +
+ geom_point() +
+    geom_errorbar(aes(ymin = mean_Prev - SE_Prev, ymax = mean_Prev + SE_Prev), width=0.1) +
+  # geom_point(data = transect_analysis, aes(Site, prev)) +
+  scale_y_continuous(limits = c(20,100), breaks = c(20,30,40,50,60,70,80,90,100)) +
+ theme_classic() +
+  facet_wrap(~TP) +
+  theme_classic()
+
+prevplot
+
+prevplot +  geom_point(transect_analysis, aes(Site,prev))
+
+# Colour 
+
+ggplot(transect_analysis)
+```
+
+Severity plots 
+
+Severity over time 
+```{r}
+
+# Summarise severity values for plotting - with SE!
+sev_sum <- transect_analysis %>% 
+  group_by(TP,Site) %>% 
+  summarise(mean_Prev=mean(severity),
+  sd_Prev = sd(severity),
+  SE_Prev = sd(severity)/sqrt(n()))
+
+
+sevplot <- ggplot(sev_sum, aes(Site, mean_Prev)) +
+ geom_point() +
+ geom_errorbar(aes(ymin = mean_Prev - SE_Prev, ymax = mean_Prev + SE_Prev), width=0.1) +
+  scale_y_continuous(limits = c(0,20), breaks = c(0,5,10,15,20)) +
+ theme_classic() +
+ facet_wrap(~TP) 
+
+sevplot
+
+
+```
+
+Severity x montipora plot  
+
+Bring plots together 
+
+###  Plotting results
+
+```{r}
+grid <- plot_grid(prevplot,sevplot,montisevplot, labels = c('A', 'B','C'), label_size = 12)
+
+grid
+```
+
+## B. Cluster analysis
+
+### Plotting results
+
+
+
+
+
+```{r}
+summ_december <- transect_analysis %>% filter(TP == "December") %>%
+  mutate(zero = "0")
+
+cluster_dec <- summ_december[,c(7,9)]
+cluster_dec.sev <- summ_december[,c(7,27)]
+cluster_dec.prev <- summ_december[,c(9,27)]
+
+summ_april <- transect_analysis %>% filter(TP == "April") %>%
+  mutate(zero = "0")
+
+cluster_april <- summ_april[,c(7,9)]
+cluster_april.sev <- summ_april[,c(7,27)]
+cluster_april.prev <- summ_april[,c(9,27)]
+
+```
+
+
+
+```{r}
+
+# DECEMBER
+
+rownames(cluster_dec) <- summ_december$Transect
+rownames(cluster_dec.sev) <- summ_december$Transect
+rownames(cluster_dec.prev) <- summ_december$Transect
+
+# Create a matrix - similarity coefficient = Euclidean distance 
+
+Dec.sim <- dist(cluster_dec, method = "euclidean")
+Dec.sim.sev <- dist(cluster_dec.sev, method = "euclidean")
+Dec.sim.prev <- dist(cluster_dec.prev, method = "euclidean")
+
+Dec.sim.cluster <- hclust(Dec.sim, method = "ward")
+Dec.sim.cluster.sev <- hclust(Dec.sim.sev, method = "ward")
+Dec.sim.cluster.prev <- hclust(Dec.sim.prev, method = "ward")
+
+plot(Dec.sim.cluster)
+plot(Dec.sim.cluster.sev)
+plot(Dec.sim.cluster.prev)
+
+# convert it to a dendogram 
+
+plot(as.dendrogram(Dec.sim.cluster),ylab = "Euclidean distance")
+b <- plot(as.dendrogram(Dec.sim.cluster.sev),ylab = "Euclidean distance")
+c <- plot(as.dendrogram(Dec.sim.cluster.prev),ylab = "Euclidean distance")
+
+
+# APRIL
+
+rownames(cluster_april) <- summ_april$Transect
+rownames(cluster_april.sev) <- summ_april$Transect
+rownames(cluster_april.prev) <- summ_april$Transect
+
+# Create a matrix - similarity coefficient = Euclidean distance 
+
+April.sim <- dist(cluster_april, method = "euclidean")
+April.sim.sev <- dist(cluster_april.sev, method = "euclidean")
+April.sim.prev <- dist(cluster_april.prev, method = "euclidean")
+
+April.sim.cluster <- hclust(April.sim, method = "ward")
+April.sim.cluster.sev <- hclust(April.sim.sev, method = "ward")
+April.sim.cluster.prev <- hclust(April.sim.prev, method = "ward")
+
+plot(April.sim.cluster)
+plot(April.sim.cluster.sev)
+plot(April.sim.cluster.prev)
+
+# convert it to a dendogram 
+
+plot(as.dendrogram(April.sim.cluster),ylab = "Euclidean distance")
+plot(as.dendrogram(April.sim.cluster.sev),ylab = "Euclidean distance")
+plot(as.dendrogram(April.sim.cluster.prev),ylab = "Euclidean distance")
+```
+
+
+
+
+
+
 
